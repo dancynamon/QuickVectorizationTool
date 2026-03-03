@@ -1,0 +1,1459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF Overprint Studio</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#1a1a2e;--surface:#16213e;--panel:#0f3460;
+  --accent:#e94560;--accent2:#533483;--text:#eee;--text2:#aab;
+  --spot-rgb:82,255,0;--border:#2a2a4a;
+}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);gap:20px;flex-shrink:0}
+header h1{font-size:18px;font-weight:600;white-space:nowrap}
+.tab-bar{display:flex;gap:4px}
+.tab-btn{padding:8px 20px;border:none;background:transparent;color:var(--text2);cursor:pointer;border-radius:6px 6px 0 0;font-size:14px;transition:all .2s}
+.tab-btn:hover{background:rgba(255,255,255,.05)}
+.tab-btn.active{background:var(--panel);color:var(--text)}
+main{flex:1;display:flex;overflow:hidden}
+.panel{display:none;flex:1;overflow:hidden}
+.panel.active{display:flex}
+
+.drop-zone{border:2px dashed var(--border);border-radius:12px;padding:60px 40px;text-align:center;cursor:pointer;transition:all .3s;background:rgba(255,255,255,.02)}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--accent);background:rgba(233,69,96,.05)}
+.drop-zone h3{font-size:20px;margin-bottom:8px}
+.drop-zone p{color:var(--text2);font-size:14px}
+.drop-zone input[type=file]{display:none}
+
+#preview-panel{flex-direction:column}
+#preview-upload{display:flex;align-items:center;justify-content:center;flex:1;padding:40px}
+#preview-workspace{display:none;flex:1;flex-direction:row;overflow:hidden}
+#canvas-container{flex:1;display:grid;grid-template:"corner hruler" 24px "vruler scroll" 1fr / 24px 1fr;overflow:hidden}
+#ruler-corner{grid-area:corner;background:var(--surface);border-right:1px solid var(--border);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--text2);z-index:2}
+#ruler-h-wrap{grid-area:hruler;overflow:hidden;background:var(--surface);border-bottom:1px solid var(--border)}
+#ruler-v-wrap{grid-area:vruler;overflow:hidden;background:var(--surface);border-right:1px solid var(--border)}
+#canvas-scroll{grid-area:scroll;overflow:auto;background:repeating-conic-gradient(#222 0% 25%,#2a2a2a 0% 50%) 0 0/20px 20px}
+#canvas-wrapper{position:relative;display:inline-block}
+#pdf-canvas{display:block}
+#overlay-canvas{position:absolute;top:0;left:0;pointer-events:none}
+.sidebar{width:280px;background:var(--surface);border-left:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:16px;overflow-y:auto;flex-shrink:0}
+.sidebar h3{font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin-bottom:4px}
+.sidebar-section{background:rgba(255,255,255,.03);border-radius:8px;padding:12px}
+
+.nav-bar{display:flex;align-items:center;justify-content:center;gap:12px;padding:10px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0}
+.nav-bar button{padding:6px 14px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:4px;cursor:pointer;font-size:13px}
+.nav-bar button:hover{background:var(--panel)}
+.nav-bar button:disabled{opacity:.4;cursor:default}
+.nav-bar span{font-size:13px;color:var(--text2);min-width:100px;text-align:center}
+
+.layer-item{display:flex;align-items:center;gap:8px;padding:6px 0}
+.layer-item input[type=checkbox]{accent-color:var(--accent)}
+.layer-swatch{width:16px;height:16px;border-radius:3px;border:1px solid rgba(255,255,255,.2)}
+.layer-name{font-size:13px}
+
+.view-mode label{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;cursor:pointer}
+.view-mode input{accent-color:var(--accent)}
+
+#convert-panel{flex-direction:column;align-items:center;overflow-y:auto;padding:40px}
+.convert-content{max-width:620px;width:100%;display:flex;flex-direction:column;gap:24px}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.3px}
+.field input,.field select{padding:8px 10px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;font-size:14px}
+.field input:focus,.field select:focus{outline:none;border-color:var(--accent)}
+.color-preview{display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,.03);border-radius:8px}
+.color-swatch-lg{width:48px;height:48px;border-radius:8px;border:2px solid rgba(255,255,255,.15)}
+.color-info{font-size:13px;line-height:1.6}
+.color-info strong{color:var(--text)}
+
+.btn{padding:12px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;transition:all .2s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{filter:brightness(1.15)}
+.btn-primary:disabled{opacity:.5;cursor:default;filter:none}
+.btn-secondary{background:var(--panel);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover{background:rgba(255,255,255,.1)}
+
+.status{padding:12px 16px;border-radius:8px;font-size:14px;display:none}
+.status.visible{display:block}
+.status.info{background:rgba(83,72,131,.3);border:1px solid var(--accent2)}
+.status.success{background:rgba(82,255,0,.08);border:1px solid rgba(82,255,0,.3);color:#8f8}
+.status.error{background:rgba(233,69,96,.1);border:1px solid rgba(233,69,96,.3);color:#f88}
+
+.progress-wrap{height:4px;background:var(--border);border-radius:2px;overflow:hidden;display:none}
+.progress-wrap.visible{display:block}
+.progress-bar{height:100%;background:var(--accent);transition:width .3s;width:0}
+.zoom-display{font-size:12px;color:var(--text2);min-width:50px;text-align:center}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:13px}
+.toggle-row input{accent-color:var(--accent)}
+
+/* Slider styling */
+.slider-row{display:flex;align-items:center;gap:10px;margin-top:8px}
+.slider-row input[type=range]{flex:1;accent-color:var(--accent);height:4px}
+.slider-row .slider-val{font-size:12px;color:var(--text2);min-width:36px;text-align:right}
+.hint{font-size:11px;color:var(--text2);margin-top:4px;line-height:1.4}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PDF Overprint Studio</h1>
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="preview">Preview</button>
+    <button class="tab-btn" data-tab="convert">Convert</button>
+  </div>
+</header>
+
+<main>
+  <!-- PREVIEW PANEL -->
+  <div id="preview-panel" class="panel active">
+    <div id="preview-upload">
+      <div class="drop-zone" id="preview-drop">
+        <h3>Open a PDF to Preview</h3>
+        <p>Drag &amp; drop a PDF file here, or click to browse</p>
+        <input type="file" accept=".pdf" id="preview-file-input">
+      </div>
+    </div>
+    <div id="preview-workspace">
+      <div id="canvas-container">
+        <div id="ruler-corner">in</div>
+        <div id="ruler-h-wrap"><canvas id="ruler-h"></canvas></div>
+        <div id="ruler-v-wrap"><canvas id="ruler-v"></canvas></div>
+        <div id="canvas-scroll">
+          <div id="canvas-wrapper">
+            <canvas id="pdf-canvas"></canvas>
+            <canvas id="overlay-canvas"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="sidebar">
+        <div class="sidebar-section">
+          <h3>View Mode</h3>
+          <div class="view-mode">
+            <label><input type="radio" name="view-mode" value="normal" checked> Normal</label>
+            <label><input type="radio" name="view-mode" value="overprint"> Overprint Preview</label>
+          </div>
+          <div class="slider-row" id="opacity-slider-row" style="display:none">
+            <span style="font-size:12px">Spot visibility</span>
+            <input type="range" min="5" max="100" value="50" id="spot-opacity">
+            <span class="slider-val" id="spot-opacity-label">50%</span>
+          </div>
+          <p class="hint" id="overprint-hint" style="display:none">
+            For converted 2-layer PDFs, the spot color overlays the artwork showing where the spot treatment alters the printed color. Plain PDFs without a spot layer will look identical to normal view.
+          </p>
+        </div>
+        <div class="sidebar-section" id="layers-section" style="display:none">
+          <h3>Layers</h3>
+          <div id="layers-list"></div>
+        </div>
+        <div class="sidebar-section">
+          <h3>Spot Color Reference</h3>
+          <div class="color-preview">
+            <div class="color-swatch-lg" id="preview-swatch" style="background:rgb(var(--spot-rgb))"></div>
+            <div class="color-info" id="preview-spot-info">
+              <strong>SpotGreen</strong><br>
+              CMYK 68 / 0 / 100 / 0<br>
+              <span style="color:var(--text2)">Overprint: ON</span>
+            </div>
+          </div>
+        </div>
+        <div class="sidebar-section" id="artboard-section" style="display:none">
+          <h3>Artboard</h3>
+          <div id="artboard-info" style="font-size:13px;line-height:1.6"></div>
+        </div>
+        <div class="sidebar-section">
+          <h3>File</h3>
+          <button class="btn btn-primary" style="width:100%;font-size:13px;padding:8px;margin-bottom:6px;display:none" id="preview-convert-btn">Convert This File</button>
+          <button class="btn btn-secondary" style="width:100%;font-size:13px;padding:8px" id="preview-new-file">Open Different PDF</button>
+        </div>
+      </div>
+    </div>
+    <div class="nav-bar" id="preview-nav" style="display:none">
+      <button id="prev-page">&larr; Prev</button>
+      <span id="page-info">Page 1 of 1</span>
+      <button id="next-page">Next &rarr;</button>
+      <span style="margin-left:20px"></span>
+      <button id="zoom-out">&minus;</button>
+      <span class="zoom-display" id="zoom-display">100%</span>
+      <button id="zoom-in">+</button>
+    </div>
+  </div>
+
+  <!-- CONVERT PANEL -->
+  <div id="convert-panel" class="panel">
+    <div class="convert-content">
+      <div class="drop-zone" id="convert-drop">
+        <h3>Select a PDF to Convert</h3>
+        <p>Drag &amp; drop a vector or rasterized PDF.<br>
+        Raster images are auto-traced to sharp vectors.<br>
+        Creates a 2-layer PDF with a Spot Color overprint layer.</p>
+        <input type="file" accept=".pdf" id="convert-file-input">
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Spot Color Settings</h3>
+        <div class="settings-grid">
+          <div class="field"><label>Cyan</label><input type="number" id="spot-c" value="68" min="0" max="100" step="1"></div>
+          <div class="field"><label>Magenta</label><input type="number" id="spot-m" value="0" min="0" max="100" step="1"></div>
+          <div class="field"><label>Yellow</label><input type="number" id="spot-y" value="100" min="0" max="100" step="1"></div>
+          <div class="field"><label>Black</label><input type="number" id="spot-k" value="0" min="0" max="100" step="1"></div>
+        </div>
+        <div style="margin-top:12px">
+          <div class="field"><label>Spot Color Name</label><input type="text" id="spot-name" value="SpotGreen"></div>
+        </div>
+        <div class="color-preview" style="margin-top:12px">
+          <div class="color-swatch-lg" id="convert-swatch" style="background:rgb(var(--spot-rgb))"></div>
+          <div class="color-info" id="convert-color-info">
+            <strong>CMYK 68 / 0 / 100 / 0</strong><br>
+            <span style="color:var(--text2)">Overprint: Always ON</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Conversion Settings</h3>
+        <div class="settings-grid">
+          <div class="field">
+            <label>Input Mode</label>
+            <select id="input-mode">
+              <option value="auto">Auto-detect</option>
+              <option value="vector">Force Vector</option>
+              <option value="raster">Force Raster Trace</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Trace Quality</label>
+            <select id="trace-quality">
+              <option value="2">Standard (2x)</option>
+              <option value="3" selected>High (3x)</option>
+              <option value="4">Ultra (4x)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Max Colors</label>
+            <input type="number" id="max-colors" value="24" min="2" max="128" step="1">
+          </div>
+          <div class="field">
+            <label>Simplify</label>
+            <input type="number" id="simplify-tolerance" value="1.0" min="0.1" max="5" step="0.1">
+          </div>
+        </div>
+        <div class="toggle-row" style="margin-top:8px">
+          <input type="checkbox" id="include-base" checked>
+          <label for="include-base">Include base layer (original colors)</label>
+        </div>
+        <div class="toggle-row" style="margin-top:4px">
+          <input type="checkbox" id="skip-bg" checked>
+          <label for="skip-bg">Skip white/paper background</label>
+        </div>
+      </div>
+
+      <div class="progress-wrap" id="convert-progress"><div class="progress-bar" id="convert-bar"></div></div>
+      <div class="status" id="convert-status"></div>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="convert-btn" disabled>Convert to 2-Layer PDF</button>
+        <button class="btn btn-secondary" id="download-btn" style="display:none">Download Result</button>
+        <button class="btn btn-secondary" id="preview-result-btn" style="display:none">Preview Result</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Libraries -->
+<script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+/* ============================================================
+   PDF OVERPRINT STUDIO
+   ============================================================ */
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const { PDFDocument, PDFName, PDFArray, PDFRawStream, PDFRef,
+        PDFNumber, PDFString } = PDFLib;
+
+function $(id) { return document.getElementById(id); }
+
+function cmykToRgb(c, m, y, k) {
+  c /= 100; m /= 100; y /= 100; k /= 100;
+  return [
+    Math.round(255 * (1 - c) * (1 - k)),
+    Math.round(255 * (1 - m) * (1 - k)),
+    Math.round(255 * (1 - y) * (1 - k)),
+  ];
+}
+
+function getSpotRgb() {
+  return cmykToRgb(+$('spot-c').value, +$('spot-m').value,
+                   +$('spot-y').value, +$('spot-k').value);
+}
+
+function updateSwatches() {
+  const c = +$('spot-c').value, m = +$('spot-m').value,
+        y = +$('spot-y').value, k = +$('spot-k').value;
+  const [r, g, b] = cmykToRgb(c, m, y, k);
+  const color = `rgb(${r},${g},${b})`;
+  $('convert-swatch').style.background = color;
+  $('preview-swatch').style.background = color;
+  document.documentElement.style.setProperty('--spot-rgb', `${r},${g},${b}`);
+  $('convert-color-info').innerHTML =
+    `<strong>CMYK ${c} / ${m} / ${y} / ${k}</strong><br><span style="color:var(--text2)">Overprint: Always ON</span>`;
+  $('preview-spot-info').innerHTML =
+    `<strong>${$('spot-name').value || 'SpotColor'}</strong><br>CMYK ${c} / ${m} / ${y} / ${k}<br><span style="color:var(--text2)">Overprint: ON</span>`;
+}
+
+/* ============================================================
+   CONTENT STREAM TOKENIZER & PARSER
+   ============================================================ */
+function isWS(ch) { return ' \t\n\r\f\0'.includes(ch); }
+function isDel(ch) { return '()/<>[]{}%'.includes(ch); }
+function isReg(ch) { return !isWS(ch) && !isDel(ch); }
+
+function tokenizeCS(text) {
+  const tokens = [];
+  let pos = 0;
+  const len = text.length;
+  while (pos < len) {
+    while (pos < len && isWS(text[pos])) pos++;
+    if (pos >= len) break;
+    const ch = text[pos];
+    if (ch === '%') { while (pos < len && text[pos] !== '\n' && text[pos] !== '\r') pos++; continue; }
+    if (ch === '(') {
+      let depth = 1, s = '('; pos++;
+      while (pos < len && depth > 0) {
+        if (text[pos] === '\\') { s += text[pos] + (text[pos+1]||''); pos += 2; continue; }
+        if (text[pos] === '(') depth++;
+        if (text[pos] === ')') depth--;
+        s += text[pos]; pos++;
+      }
+      tokens.push({ t: 's', r: s }); continue;
+    }
+    if (ch === '<') {
+      if (text[pos+1] === '<') { tokens.push({ t: 'd', r: '<<' }); pos += 2; continue; }
+      let st = pos; pos++;
+      while (pos < len && text[pos] !== '>') pos++;
+      pos++;
+      tokens.push({ t: 'h', r: text.slice(st, pos) }); continue;
+    }
+    if (ch === '>') { if (text[pos+1] === '>') { tokens.push({ t: 'd', r: '>>' }); pos += 2; } else pos++; continue; }
+    if (ch === '[') { tokens.push({ t: 'a', r: '[' }); pos++; continue; }
+    if (ch === ']') { tokens.push({ t: 'a', r: ']' }); pos++; continue; }
+    if (ch === '/') { let st = pos; pos++; while (pos < len && isReg(text[pos])) pos++; tokens.push({ t: 'n', r: text.slice(st, pos) }); continue; }
+    if ((ch >= '0' && ch <= '9') || ch === '+' || ch === '-' || ch === '.') {
+      let st = pos, hasDot = ch === '.', hasDig = ch >= '0' && ch <= '9';
+      pos++;
+      while (pos < len && ((text[pos] >= '0' && text[pos] <= '9') || (!hasDot && text[pos] === '.'))) {
+        if (text[pos] === '.') hasDot = true; else hasDig = true; pos++;
+      }
+      if (hasDig && (pos >= len || !isReg(text[pos]))) { tokens.push({ t: 'num', r: text.slice(st, pos) }); continue; }
+      while (pos < len && isReg(text[pos])) pos++;
+      tokens.push({ t: 'kw', r: text.slice(st, pos) }); continue;
+    }
+    let st = pos;
+    while (pos < len && isReg(text[pos])) pos++;
+    const w = text.slice(st, pos);
+    tokens.push({ t: (w === 'true' || w === 'false' || w === 'null') ? 'lit' : 'kw', r: w });
+  }
+  return tokens;
+}
+
+const OPS = new Set(['b','B','b*','B*','BDC','BI','BMC','BT','BX','c','cm','CS','cs','d','d0','d1','Do','DP','EI','EMC','ET','EX','f','F','f*','G','g','gs','h','i','ID','j','J','K','k','l','M','m','MP','n','q','Q','r','re','RG','rg','ri','S','s','SC','sc','SCN','scn','sh','T*','Tc','Td','TD','Tf','Tj','TJ','TL','Tm','Tr','Ts','Tw','Tz','v','w','W','W*','y','\'','"']);
+
+function groupOps(tokens) {
+  const ops = [], stk = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok.t === 'kw' && OPS.has(tok.r)) {
+      if (tok.r === 'BI') {
+        const parts = [tok.r]; i++;
+        while (i < tokens.length && tokens[i].r !== 'ID') { parts.push(tokens[i].r); i++; }
+        if (i < tokens.length) parts.push(tokens[i].r); i++;
+        while (i < tokens.length && tokens[i].r !== 'EI') { parts.push(tokens[i].r); i++; }
+        if (i < tokens.length) parts.push(tokens[i].r);
+        ops.push({ op: 'BI', args: [], raw: parts.join(' '), img: true });
+        continue;
+      }
+      const args = stk.splice(0);
+      const raw = args.map(a => a.r).join(' ') + (args.length ? ' ' : '') + tok.r;
+      ops.push({ op: tok.r, args, raw });
+    } else {
+      stk.push(tok);
+    }
+  }
+  return ops;
+}
+
+/* ============================================================
+   PDF STREAM DECODER (for pdf-lib loaded PDFs)
+   ============================================================ */
+function decodeStream(stream) {
+  const filt = stream.dict.get(PDFName.of('Filter'));
+  let bytes = stream.contents;
+  if (!bytes || !bytes.length) return '';
+  if (filt) {
+    const fn = filt.toString();
+    if (fn === '/FlateDecode') { try { bytes = pako.inflate(bytes); } catch(e) { return ''; } }
+    else if (filt instanceof PDFArray) {
+      for (let i = 0; i < filt.size(); i++) {
+        if (filt.get(i).toString() === '/FlateDecode') { try { bytes = pako.inflate(bytes); } catch(e) { return ''; } }
+      }
+    }
+  }
+  return new TextDecoder('latin1').decode(bytes);
+}
+
+function getPageCS(page, ctx) {
+  const ce = page.node.get(PDFName.of('Contents'));
+  if (!ce) return '';
+  const res = ce instanceof PDFRef ? ctx.lookup(ce) : ce;
+  if (res instanceof PDFArray) {
+    let t = '';
+    for (let i = 0; i < res.size(); i++) {
+      const sr = res.get(i);
+      t += decodeStream(sr instanceof PDFRef ? ctx.lookup(sr) : sr) + '\n';
+    }
+    return t;
+  }
+  return decodeStream(res);
+}
+
+/* ============================================================
+   IMAGE TRACER  –  rasterized PDF → vector paths
+   Color quantization + marching squares + Douglas-Peucker
+   ============================================================ */
+
+/* --- Color Quantization (histogram grid) --- */
+function quantizeColors(imgData, maxColors, skipWhite) {
+  const d = imgData.data, len = d.length;
+  const GRID = 6, DIV = Math.ceil(256 / GRID);
+  const hist = new Map();
+  for (let i = 0; i < len; i += 4) {
+    if (d[i+3] < 128) continue; // skip transparent
+    const r = d[i], g = d[i+1], b = d[i+2];
+    const key = (Math.floor(r/DIV) * GRID + Math.floor(g/DIV)) * GRID + Math.floor(b/DIV);
+    const e = hist.get(key);
+    if (e) { e.cnt++; e.r += r; e.g += g; e.b += b; }
+    else hist.set(key, { cnt: 1, r, g, b });
+  }
+  let sorted = [...hist.values()].sort((a, b) => b.cnt - a.cnt);
+  let palette = sorted.slice(0, maxColors).map(e => [
+    Math.round(e.r / e.cnt), Math.round(e.g / e.cnt), Math.round(e.b / e.cnt)
+  ]);
+  if (skipWhite) {
+    palette = palette.filter(c => !(c[0] > 240 && c[1] > 240 && c[2] > 240));
+  }
+  return palette;
+}
+
+/* --- Index pixels to nearest palette color --- */
+function indexPixels(imgData, palette) {
+  const d = imgData.data, w = imgData.width, h = imgData.height;
+  const idx = new Int16Array(w * h);
+  idx.fill(-1);
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    if (d[i+3] < 128) continue;
+    const r = d[i], g = d[i+1], b = d[i+2];
+    if (r > 240 && g > 240 && b > 240) continue; // skip white-ish
+    let best = 0, bestD = Infinity;
+    for (let c = 0; c < palette.length; c++) {
+      const dr = r - palette[c][0], dg = g - palette[c][1], db = b - palette[c][2];
+      const dist = dr*dr + dg*dg + db*db;
+      if (dist < bestD) { bestD = dist; best = c; }
+    }
+    idx[p] = best;
+  }
+  return idx;
+}
+
+/* --- Marching Squares contour tracing --- */
+
+// Lookup: config → array of segment pairs [fromEdge, toEdge]
+// Edges: 0=top, 1=right, 2=bottom, 3=left
+const MS_LUT = [
+  [],[[3,2]],[[2,1]],[[3,1]],[[1,0]],[[3,0],[1,2]],[[2,0]],[[3,0]],
+  [[0,3]],[[0,2]],[[0,1],[2,3]],[[0,1]],[[1,3]],[[1,2]],[[2,3]],[]
+];
+
+function edgePt(cx, cy, e) {
+  switch(e) {
+    case 0: return [cx + 0.5, cy];
+    case 1: return [cx + 1, cy + 0.5];
+    case 2: return [cx + 0.5, cy + 1];
+    case 3: return [cx, cy + 0.5];
+  }
+}
+
+function traceContours(mask, w, h) {
+  // Generate all edge segments via marching squares
+  const segs = [];
+  for (let cy = 0; cy < h - 1; cy++) {
+    for (let cx = 0; cx < w - 1; cx++) {
+      const cfg = (mask[cy*w+cx]<<3) | (mask[cy*w+cx+1]<<2) |
+                  (mask[(cy+1)*w+cx+1]<<1) | mask[(cy+1)*w+cx];
+      for (const [fe, te] of MS_LUT[cfg]) {
+        segs.push({ f: edgePt(cx, cy, fe), t: edgePt(cx, cy, te) });
+      }
+    }
+  }
+  if (segs.length === 0) return [];
+
+  // Chain segments into closed contours
+  // Build endpoint → segment index map
+  const epMap = new Map();
+  const key = p => `${p[0]},${p[1]}`;
+  for (let i = 0; i < segs.length; i++) {
+    const kf = key(segs[i].f), kt = key(segs[i].t);
+    if (!epMap.has(kf)) epMap.set(kf, []);
+    epMap.get(kf).push({ i, from: true });
+    if (!epMap.has(kt)) epMap.set(kt, []);
+    epMap.get(kt).push({ i, from: false });
+  }
+
+  const used = new Uint8Array(segs.length);
+  const contours = [];
+
+  for (let si = 0; si < segs.length; si++) {
+    if (used[si]) continue;
+    const path = [];
+    let cur = si, forward = true;
+    while (!used[cur]) {
+      used[cur] = 1;
+      const seg = segs[cur];
+      const startPt = forward ? seg.f : seg.t;
+      const endPt = forward ? seg.t : seg.f;
+      if (path.length === 0 || (path[path.length-1][0] !== startPt[0] || path[path.length-1][1] !== startPt[1])) {
+        path.push(startPt);
+      }
+      path.push(endPt);
+
+      // Find next connected segment
+      const ek = key(endPt);
+      const conns = epMap.get(ek);
+      let found = false;
+      if (conns) {
+        for (const c of conns) {
+          if (c.i !== cur && !used[c.i]) {
+            cur = c.i;
+            forward = c.from; // if it connects via its 'from' end, we go forward
+            found = true;
+            break;
+          }
+        }
+      }
+      if (!found) break;
+    }
+    if (path.length > 2) contours.push(path);
+  }
+  return contours;
+}
+
+/* --- Douglas-Peucker path simplification --- */
+function ptLineDist(p, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const lenSq = dx*dx + dy*dy;
+  if (lenSq === 0) return Math.hypot(p[0]-a[0], p[1]-a[1]);
+  let t = ((p[0]-a[0])*dx + (p[1]-a[1])*dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p[0] - (a[0]+t*dx), p[1] - (a[1]+t*dy));
+}
+
+function simplify(pts, tol) {
+  if (pts.length <= 2) return pts;
+  let maxD = 0, maxI = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = ptLineDist(pts[i], pts[0], pts[pts.length-1]);
+    if (d > maxD) { maxD = d; maxI = i; }
+  }
+  if (maxD > tol) {
+    const left = simplify(pts.slice(0, maxI + 1), tol);
+    const right = simplify(pts.slice(maxI), tol);
+    return left.slice(0, -1).concat(right);
+  }
+  return [pts[0], pts[pts.length-1]];
+}
+
+/* --- Full image trace pipeline --- */
+async function traceImageFromPDF(pdfBytes, pageNum, opts) {
+  const scale = opts.scale || 3;
+  const maxColors = opts.maxColors || 24;
+  const tolerance = opts.tolerance || 1.0;
+  const skipWhite = opts.skipWhite !== false;
+
+  // Render PDF page to canvas via PDF.js
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBytes) }).promise;
+  const page = await pdf.getPage(pageNum);
+  const baseVP = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = vp.width;
+  canvas.height = vp.height;
+  const ctx = canvas.getContext('2d');
+  // White background
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+  // Quantize + index
+  const palette = quantizeColors(imgData, maxColors, skipWhite);
+  if (palette.length === 0) return { layers: [], imgW: vp.width, imgH: vp.height, pageW: baseVP.width, pageH: baseVP.height };
+  const indexed = indexPixels(imgData, palette);
+
+  // Trace each color
+  const layers = [];
+  const w = imgData.width, h = imgData.height;
+  for (let ci = 0; ci < palette.length; ci++) {
+    // Create binary mask for this color
+    const mask = new Uint8Array(w * h);
+    let count = 0;
+    for (let j = 0; j < indexed.length; j++) {
+      if (indexed[j] === ci) { mask[j] = 1; count++; }
+    }
+    if (count < 4) continue; // skip tiny regions
+
+    const contours = traceContours(mask, w, h);
+    const paths = contours
+      .map(c => simplify(c, tolerance))
+      .filter(p => p.length >= 3);
+    if (paths.length > 0) {
+      layers.push({ color: palette[ci], paths });
+    }
+  }
+
+  pdf.destroy();
+  return { layers, imgW: vp.width, imgH: vp.height, pageW: baseVP.width, pageH: baseVP.height };
+}
+
+/* ============================================================
+   PDF TYPE DETECTION
+   ============================================================ */
+function detectPDFType(csText) {
+  const tokens = tokenizeCS(csText);
+  const ops = groupOps(tokens);
+  let pathOps = 0, imgOps = 0;
+  for (const o of ops) {
+    if ('m l c v y h re'.split(' ').includes(o.op)) pathOps++;
+    if (o.op === 'Do' || o.img) imgOps++;
+  }
+  if (pathOps > imgOps * 3 && pathOps > 5) return 'vector';
+  if (imgOps > 0 && pathOps < 10) return 'raster';
+  return 'mixed';
+}
+
+/* ============================================================
+   TRACED PATHS → PDF CONTENT STRINGS
+   ============================================================ */
+function tracedToPDFColorContent(layers, imgW, imgH, pageW, pageH) {
+  const sx = pageW / imgW, sy = pageH / imgH;
+  let s = '';
+  for (const layer of layers) {
+    const [r, g, b] = layer.color;
+    s += `${(r/255).toFixed(4)} ${(g/255).toFixed(4)} ${(b/255).toFixed(4)} rg\n`;
+    for (const path of layer.paths) {
+      if (path.length < 3) continue;
+      s += `${(path[0][0]*sx).toFixed(2)} ${(pageH - path[0][1]*sy).toFixed(2)} m\n`;
+      for (let i = 1; i < path.length; i++) {
+        s += `${(path[i][0]*sx).toFixed(2)} ${(pageH - path[i][1]*sy).toFixed(2)} l\n`;
+      }
+      s += 'h f\n';
+    }
+  }
+  return s;
+}
+
+function tracedToPDFSpotContent(layers, imgW, imgH, pageW, pageH) {
+  const sx = pageW / imgW, sy = pageH / imgH;
+  let s = '';
+  for (const layer of layers) {
+    for (const path of layer.paths) {
+      if (path.length < 3) continue;
+      s += `${(path[0][0]*sx).toFixed(2)} ${(pageH - path[0][1]*sy).toFixed(2)} m\n`;
+      for (let i = 1; i < path.length; i++) {
+        s += `${(path[i][0]*sx).toFixed(2)} ${(pageH - path[i][1]*sy).toFixed(2)} l\n`;
+      }
+      s += 'h f\n';
+    }
+  }
+  return s;
+}
+
+/* ============================================================
+   2-LAYER PDF CONVERTER (vector path + raster trace)
+   ============================================================ */
+const COLOR_OPS = new Set(['rg','RG','g','G','k','K','cs','CS','sc','SC','scn','SCN']);
+const SKIP_SPOT = new Set([...COLOR_OPS, 'sh']);
+
+function buildSpotOps(operations) {
+  return operations.filter(op => !op.img && !SKIP_SPOT.has(op.op));
+}
+
+async function convertPDF(inputBytes, opts, onProgress) {
+  const spotCMYK = opts.spotCMYK;
+  const spotName = opts.spotName;
+  const includeBase = opts.includeBase;
+  const mode = opts.mode || 'auto';
+  const traceScale = opts.traceScale || 3;
+  const maxColors = opts.maxColors || 24;
+  const tolerance = opts.tolerance || 1.0;
+  const skipWhite = opts.skipWhite !== false;
+
+  const pdfDoc = await PDFDocument.load(inputBytes, { ignoreEncryption: true });
+  const context = pdfDoc.context;
+  const pages = pdfDoc.getPages();
+
+  onProgress(10, 'Setting up color spaces...');
+
+  // --- Shared PDF objects ---
+
+  // Tint transform function
+  const tintFunc = context.obj({
+    FunctionType: 2, Domain: [0, 1],
+    Range: [0, 1, 0, 1, 0, 1, 0, 1],
+    C0: [0, 0, 0, 0],
+    C1: [spotCMYK.c/100, spotCMYK.m/100, spotCMYK.y/100, spotCMYK.k/100],
+    N: 1,
+  });
+  const tintFuncRef = context.register(tintFunc);
+
+  // Separation color space
+  const sepCS = PDFArray.withContext(context);
+  sepCS.push(PDFName.of('Separation'));
+  sepCS.push(PDFName.of(spotName));
+  sepCS.push(PDFName.of('DeviceCMYK'));
+  sepCS.push(tintFuncRef);
+  const sepCSRef = context.register(sepCS);
+
+  // Overprint ExtGState
+  const ovGS = context.obj({ Type: 'ExtGState', OP: true, op: true, OPM: 1 });
+  const ovGSRef = context.register(ovGS);
+
+  // OCG layers
+  const baseOCG = context.obj({ Type: 'OCG' });
+  baseOCG.set(PDFName.of('Name'), PDFString.of('Base'));
+  const baseRef = context.register(baseOCG);
+
+  const spotOCG = context.obj({ Type: 'OCG' });
+  spotOCG.set(PDFName.of('Name'), PDFString.of('Spot'));
+  const spotRef = context.register(spotOCG);
+
+  // OCProperties on catalog
+  const catalog = context.lookup(context.trailerInfo.Root);
+  const ocgs = PDFArray.withContext(context);
+  ocgs.push(baseRef); ocgs.push(spotRef);
+  const ocOrder = PDFArray.withContext(context);
+  ocOrder.push(baseRef); ocOrder.push(spotRef);
+  const ocOn = PDFArray.withContext(context);
+  ocOn.push(baseRef); ocOn.push(spotRef);
+  const defCfg = context.obj({});
+  defCfg.set(PDFName.of('Name'), PDFString.of('Default'));
+  defCfg.set(PDFName.of('BaseState'), PDFName.of('ON'));
+  defCfg.set(PDFName.of('ON'), ocOn);
+  defCfg.set(PDFName.of('Order'), ocOrder);
+  const ocProps = context.obj({});
+  ocProps.set(PDFName.of('OCGs'), ocgs);
+  ocProps.set(PDFName.of('D'), defCfg);
+  catalog.set(PDFName.of('OCProperties'), ocProps);
+
+  // --- Process each page ---
+  for (let p = 0; p < pages.length; p++) {
+    const pct = 20 + Math.round((p / pages.length) * 60);
+    onProgress(pct, `Processing page ${p + 1} of ${pages.length}...`);
+
+    const page = pages[p];
+    const csText = getPageCS(page, context);
+
+    // Detect type
+    let useRaster = mode === 'raster';
+    if (mode === 'auto') {
+      const typ = detectPDFType(csText);
+      useRaster = typ === 'raster' || typ === 'mixed';
+    }
+
+    let combined = '';
+
+    if (useRaster) {
+      // --- RASTER PATH: render → trace → vectorize ---
+      onProgress(pct, `Tracing page ${p + 1} (raster)...`);
+
+      const traceResult = await traceImageFromPDF(inputBytes, p + 1, {
+        scale: traceScale, maxColors, tolerance, skipWhite,
+      });
+
+      if (traceResult.layers.length === 0) continue;
+
+      const { layers, imgW, imgH, pageW, pageH } = traceResult;
+
+      // Base layer: traced color paths
+      if (includeBase) {
+        combined += 'q\n/OC /OC_Base BDC\n';
+        combined += tracedToPDFColorContent(layers, imgW, imgH, pageW, pageH);
+        combined += 'EMC\nQ\n';
+      }
+
+      // Spot layer: same paths, spot color
+      combined += 'q\n/OC /OC_Spot BDC\n';
+      combined += '/GS_OP gs\n/CS_Spot cs 1 scn\n/CS_Spot CS 1 SCN\n';
+      combined += tracedToPDFSpotContent(layers, imgW, imgH, pageW, pageH);
+      combined += 'EMC\nQ\n';
+
+    } else {
+      // --- VECTOR PATH: parse content stream ---
+      if (!csText.trim()) continue;
+      const tokens = tokenizeCS(csText);
+      const operations = groupOps(tokens);
+      const spotOps = buildSpotOps(operations);
+
+      if (includeBase) {
+        combined += 'q\n/OC /OC_Base BDC\n';
+        combined += csText;
+        combined += '\nEMC\nQ\n';
+      }
+
+      combined += 'q\n/OC /OC_Spot BDC\n';
+      combined += '/GS_OP gs\n/CS_Spot cs 1 scn\n/CS_Spot CS 1 SCN\n';
+      combined += spotOps.map(o => o.raw).join('\n');
+      combined += '\nEMC\nQ\n';
+    }
+
+    // Write new content stream
+    const bytes = new TextEncoder().encode(combined);
+    const sDict = context.obj({});
+    sDict.set(PDFName.of('Length'), PDFNumber.of(bytes.length));
+    const newStream = PDFRawStream.of(sDict, bytes);
+    const newStreamRef = context.register(newStream);
+    page.node.set(PDFName.of('Contents'), newStreamRef);
+
+    // Update resources
+    let res = page.node.get(PDFName.of('Resources'));
+    if (res instanceof PDFRef) res = context.lookup(res);
+    if (!res) { res = context.obj({}); page.node.set(PDFName.of('Resources'), res); }
+
+    let csD = res.get(PDFName.of('ColorSpace'));
+    if (csD instanceof PDFRef) csD = context.lookup(csD);
+    if (!csD) { csD = context.obj({}); res.set(PDFName.of('ColorSpace'), csD); }
+    csD.set(PDFName.of('CS_Spot'), sepCSRef);
+
+    let gsD = res.get(PDFName.of('ExtGState'));
+    if (gsD instanceof PDFRef) gsD = context.lookup(gsD);
+    if (!gsD) { gsD = context.obj({}); res.set(PDFName.of('ExtGState'), gsD); }
+    gsD.set(PDFName.of('GS_OP'), ovGSRef);
+
+    let prD = res.get(PDFName.of('Properties'));
+    if (prD instanceof PDFRef) prD = context.lookup(prD);
+    if (!prD) { prD = context.obj({}); res.set(PDFName.of('Properties'), prD); }
+    prD.set(PDFName.of('OC_Base'), baseRef);
+    prD.set(PDFName.of('OC_Spot'), spotRef);
+  }
+
+  onProgress(90, 'Saving PDF...');
+  return pdfDoc.save();
+}
+
+/* ============================================================
+   OVERPRINT PREVIEW RENDERER
+   Renders color layer normally, then overlays a translucent
+   spot-colored layer on top to show where spot treatment
+   alters the printed appearance.
+   ============================================================ */
+let pdfJsDoc = null;
+let currentPage = 1;
+let totalPages = 0;
+let currentScale = 1.5;
+let viewMode = 'normal';
+let pageWidthPts = 0;
+let pageHeightPts = 0;
+let previewInputBytes = null;  // raw bytes of file loaded in preview
+let cachedOCConfig = null;     // shared OCG config so checkboxes persist
+let hasRealSpotLayer = false;  // true when a spot layer role is assigned
+let assignedBaseId = null;     // OCG group id assigned as "Base" layer
+let assignedSpotId = null;     // OCG group id assigned as "Spot" layer
+let detectedGroups = new Map(); // id -> { name, id } from OCG config
+
+async function loadPDFForPreview(bytes) {
+  if (pdfJsDoc) { try { pdfJsDoc.destroy(); } catch(e) {} }
+  previewInputBytes = bytes;
+  cachedOCConfig = null;
+  hasRealSpotLayer = false;
+  assignedBaseId = null;
+  assignedSpotId = null;
+  detectedGroups = new Map();
+  pdfJsDoc = await pdfjsLib.getDocument({ data: new Uint8Array(bytes) }).promise;
+  totalPages = pdfJsDoc.numPages;
+  currentPage = 1;
+  currentScale = 1.5;
+  await detectLayers();
+  await renderCurrentPage();
+  updatePageInfo();
+  // Show/hide convert button based on whether this already has layers
+  $('preview-convert-btn').style.display = hasRealSpotLayer ? 'none' : 'inline-block';
+}
+
+async function renderCurrentPage() {
+  if (!pdfJsDoc) return;
+  const page = await pdfJsDoc.getPage(currentPage);
+  const baseVP = page.getViewport({ scale: 1 });
+  pageWidthPts = baseVP.width;
+  pageHeightPts = baseVP.height;
+  const vp = page.getViewport({ scale: currentScale });
+
+  const canvas = $('pdf-canvas');
+  const overlay = $('overlay-canvas');
+  const ctx = canvas.getContext('2d');
+  const octx = overlay.getContext('2d');
+
+  // Both canvases get identical pixel dimensions inside the wrapper
+  const w = Math.round(vp.width);
+  const h = Math.round(vp.height);
+  canvas.width = w;
+  canvas.height = h;
+  overlay.width = w;
+  overlay.height = h;
+  octx.clearRect(0, 0, w, h);
+
+  if (viewMode === 'normal') {
+    // Use cached OCG config so layer checkbox visibility is respected
+    const renderOpts = { canvasContext: ctx, viewport: vp };
+    if (cachedOCConfig) renderOpts.optionalContentConfigPromise = Promise.resolve(cachedOCConfig);
+    await page.render(renderOpts).promise;
+  } else {
+    await renderOverprintPreview(page, vp, ctx, octx);
+  }
+
+  drawRulers();
+  updateArtboardInfo();
+}
+
+async function renderOverprintPreview(page, vp, ctx, octx) {
+  const spotAlpha = (+$('spot-opacity').value) / 100;
+  const [sr, sg, sb] = getSpotRgb();
+
+  // Use the shared cached config so checkbox visibility changes persist
+  const ocConfig = cachedOCConfig;
+
+  if (hasRealSpotLayer && ocConfig && assignedBaseId && assignedSpotId) {
+    // --- Layer-aware overprint preview ---
+    // Save all current visibilities, then manipulate for rendering
+    const allIds = [...detectedGroups.keys()];
+
+    // 1) Render base (color) layer only to main canvas
+    allIds.forEach(id => ocConfig.setVisibility(id, id === assignedBaseId));
+    await page.render({
+      canvasContext: ctx, viewport: vp,
+      optionalContentConfigPromise: Promise.resolve(ocConfig),
+    }).promise;
+
+    // 2) Render spot layer only to temp canvas to get shape mask
+    const tmpC = document.createElement('canvas');
+    tmpC.width = Math.round(vp.width); tmpC.height = Math.round(vp.height);
+    const tctx = tmpC.getContext('2d');
+    allIds.forEach(id => ocConfig.setVisibility(id, id === assignedSpotId));
+    await page.render({
+      canvasContext: tctx, viewport: vp,
+      optionalContentConfigPromise: Promise.resolve(ocConfig),
+    }).promise;
+
+    // 3) Build translucent spot-color overlay from shape mask
+    const w = Math.round(vp.width), h = Math.round(vp.height);
+    const spotImgData = tctx.getImageData(0, 0, w, h);
+    const sd = spotImgData.data;
+    for (let i = 0; i < sd.length; i += 4) {
+      const brightness = (sd[i] + sd[i+1] + sd[i+2]) / 3;
+      const fill = 1 - brightness / 255;
+      if (fill < 0.02) {
+        sd[i+3] = 0;
+      } else {
+        sd[i]   = sr;
+        sd[i+1] = sg;
+        sd[i+2] = sb;
+        sd[i+3] = Math.round(fill * spotAlpha * 255);
+      }
+    }
+    tctx.putImageData(spotImgData, 0, 0);
+
+    // 4) Composite onto overlay
+    octx.clearRect(0, 0, w, h);
+    octx.drawImage(tmpC, 0, 0);
+
+    // Restore all layers to their checkbox-defined visibility
+    restoreLayerVisibility();
+    return;
+  }
+
+  // --- No spot layer assigned: render normally, NO tint ---
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  octx.clearRect(0, 0, Math.round(vp.width), Math.round(vp.height));
+}
+
+/* Restore OCG visibility to match the current state of layer checkboxes */
+function restoreLayerVisibility() {
+  if (!cachedOCConfig) return;
+  document.querySelectorAll('#layers-list input[data-layer-id]').forEach(cb => {
+    cachedOCConfig.setVisibility(cb.dataset.layerId, cb.checked);
+  });
+}
+
+async function detectLayers() {
+  const section = $('layers-section');
+  const list = $('layers-list');
+  list.innerHTML = '';
+  hasRealSpotLayer = false;
+  cachedOCConfig = null;
+  assignedBaseId = null;
+  assignedSpotId = null;
+  detectedGroups = new Map();
+
+  let ocConfig = null;
+  try { ocConfig = await pdfJsDoc.getOptionalContentConfig(); } catch(e) {}
+  if (!ocConfig) { section.style.display = 'none'; return; }
+
+  const groups = ocConfig.getGroups();
+  if (!groups || Object.keys(groups).length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+
+  const gids = Object.keys(groups);
+
+  // Store detected groups for use by other functions
+  for (const id of gids) {
+    detectedGroups.set(id, { id, name: groups[id].name || '(unnamed)' });
+  }
+
+  // Cache config for layer toggling
+  cachedOCConfig = ocConfig;
+
+  // Auto-detect roles by case-insensitive name matching
+  for (const id of gids) {
+    const name = (groups[id].name || '').toLowerCase();
+    if (!assignedBaseId && (name === 'base' || name.includes('base') || name.includes('color'))) {
+      assignedBaseId = id;
+    }
+    if (!assignedSpotId && (name === 'spot' || name.includes('spot') || name.includes('varnish') || name.includes('white'))) {
+      assignedSpotId = id;
+    }
+  }
+
+  // If we have exactly 2 layers and only one is assigned, assign the other
+  if (gids.length === 2) {
+    if (assignedSpotId && !assignedBaseId) {
+      assignedBaseId = gids.find(id => id !== assignedSpotId);
+    } else if (assignedBaseId && !assignedSpotId) {
+      assignedSpotId = gids.find(id => id !== assignedBaseId);
+    }
+  }
+
+  hasRealSpotLayer = !!(assignedBaseId && assignedSpotId);
+  section.style.display = 'block';
+  buildLayerUI(groups, gids);
+}
+
+function buildLayerUI(groups, gids) {
+  const list = $('layers-list');
+  list.innerHTML = '';
+
+  for (const id of gids) {
+    const g = groups[id];
+    const name = g.name || '(unnamed)';
+    const isSpot = id === assignedSpotId;
+    const isBase = id === assignedBaseId;
+
+    const item = document.createElement('div');
+    item.className = 'layer-item';
+    item.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 0;';
+
+    // Visibility checkbox
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.dataset.layerId = id;
+    cb.addEventListener('change', async (e) => {
+      cachedOCConfig.setVisibility(id, e.target.checked);
+      await renderCurrentPage();
+    });
+
+    // Color swatch
+    const swatch = document.createElement('div');
+    swatch.className = 'layer-swatch';
+    swatch.style.background = isSpot ? 'rgb(var(--spot-rgb))' : '#fff';
+
+    // Layer name
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'layer-name';
+    nameSpan.textContent = name;
+    nameSpan.style.flex = '1';
+
+    // Role dropdown
+    const select = document.createElement('select');
+    select.style.cssText = 'font-size:11px;padding:1px 3px;background:#1a1f35;color:#ccc;border:1px solid #334;border-radius:3px;';
+    select.innerHTML = `
+      <option value="none">—</option>
+      <option value="base" ${isBase ? 'selected' : ''}>Base</option>
+      <option value="spot" ${isSpot ? 'selected' : ''}>Spot</option>`;
+    select.addEventListener('change', async () => {
+      applyLayerRoles();
+      await renderCurrentPage();
+    });
+    select.dataset.layerId = id;
+
+    item.appendChild(cb);
+    item.appendChild(swatch);
+    item.appendChild(nameSpan);
+    item.appendChild(select);
+    list.appendChild(item);
+  }
+
+  // Show a hint if no roles are assigned
+  updateLayerHint();
+}
+
+function applyLayerRoles() {
+  assignedBaseId = null;
+  assignedSpotId = null;
+
+  document.querySelectorAll('#layers-list select').forEach(sel => {
+    const id = sel.dataset.layerId;
+    if (sel.value === 'base') {
+      // If another layer already claimed base, reset this to none
+      if (assignedBaseId) { sel.value = 'none'; return; }
+      assignedBaseId = id;
+    } else if (sel.value === 'spot') {
+      if (assignedSpotId) { sel.value = 'none'; return; }
+      assignedSpotId = id;
+    }
+  });
+
+  hasRealSpotLayer = !!(assignedBaseId && assignedSpotId);
+
+  // Update swatches
+  document.querySelectorAll('#layers-list .layer-swatch').forEach(sw => {
+    const item = sw.parentElement;
+    const sel = item.querySelector('select');
+    if (sel) {
+      sw.style.background = sel.value === 'spot' ? 'rgb(var(--spot-rgb))' : '#fff';
+    }
+  });
+
+  updateLayerHint();
+
+  // Show/hide convert button based on whether this has roles assigned
+  $('preview-convert-btn').style.display = hasRealSpotLayer ? 'none' : 'inline-block';
+}
+
+function updateLayerHint() {
+  const hint = $('overprint-hint');
+  if (!hint) return;
+  if (detectedGroups.size > 0 && !hasRealSpotLayer) {
+    hint.textContent = 'Assign Base and Spot roles to layers above to enable overprint preview.';
+    hint.style.display = 'block';
+  } else if (hasRealSpotLayer && viewMode === 'overprint') {
+    hint.textContent = 'Overprint preview shows the spot color layer overlaid on the base layer, simulating how the spot treatment alters printed color.';
+    hint.style.display = 'block';
+  } else if (viewMode === 'overprint' && detectedGroups.size === 0) {
+    hint.textContent = 'No layers detected. Plain PDFs will look identical in overprint mode.';
+    hint.style.display = 'block';
+  } else {
+    hint.style.display = 'none';
+  }
+}
+
+/* ---- Rulers ---- */
+function drawRulers() {
+  if (!pageWidthPts || !pageHeightPts) return;
+  const pxW = Math.round(pageWidthPts * currentScale);
+  const pxH = Math.round(pageHeightPts * currentScale);
+  const RS = 24; // ruler thickness in px
+  const pxPerInch = 72 * currentScale;
+
+  // Adaptive major tick interval
+  let major = 1;
+  if (pxPerInch < 40) major = 2;
+  if (pxPerInch < 20) major = 5;
+
+  // --- Horizontal ruler ---
+  const hc = $('ruler-h');
+  hc.width = pxW; hc.height = RS;
+  hc.style.width = pxW + 'px'; hc.style.height = RS + 'px';
+  const hx = hc.getContext('2d');
+  hx.fillStyle = '#16213e';
+  hx.fillRect(0, 0, pxW, RS);
+  hx.strokeStyle = '#667';
+  hx.fillStyle = '#99a';
+  hx.font = '9px system-ui, sans-serif';
+  hx.textAlign = 'center';
+  hx.lineWidth = 1;
+  const totalInH = pageWidthPts / 72;
+  for (let i = 0; i <= totalInH + major; i += major) {
+    const x = Math.round(i * pxPerInch) + 0.5;
+    if (x > pxW) break;
+    hx.beginPath(); hx.moveTo(x, RS); hx.lineTo(x, RS - 10); hx.stroke();
+    if (i > 0) hx.fillText(i + '"', x, 10);
+    if (major <= 2) {
+      for (let q = 0.25; q < major; q += 0.25) {
+        const mx = Math.round((i + q) * pxPerInch) + 0.5;
+        if (mx > pxW) break;
+        const th = q % 0.5 === 0 ? 6 : 3;
+        hx.beginPath(); hx.moveTo(mx, RS); hx.lineTo(mx, RS - th); hx.stroke();
+      }
+    }
+  }
+
+  // --- Vertical ruler ---
+  const vc = $('ruler-v');
+  vc.width = RS; vc.height = pxH;
+  vc.style.width = RS + 'px'; vc.style.height = pxH + 'px';
+  const vx = vc.getContext('2d');
+  vx.fillStyle = '#16213e';
+  vx.fillRect(0, 0, RS, pxH);
+  vx.strokeStyle = '#667';
+  vx.fillStyle = '#99a';
+  vx.font = '9px system-ui, sans-serif';
+  vx.lineWidth = 1;
+  const totalInV = pageHeightPts / 72;
+  for (let i = 0; i <= totalInV + major; i += major) {
+    const y = Math.round(i * pxPerInch) + 0.5;
+    if (y > pxH) break;
+    vx.beginPath(); vx.moveTo(RS, y); vx.lineTo(RS - 10, y); vx.stroke();
+    if (i > 0) {
+      vx.save();
+      vx.translate(10, y);
+      vx.rotate(-Math.PI / 2);
+      vx.textAlign = 'center';
+      vx.fillText(i + '"', 0, 0);
+      vx.restore();
+    }
+    if (major <= 2) {
+      for (let q = 0.25; q < major; q += 0.25) {
+        const my = Math.round((i + q) * pxPerInch) + 0.5;
+        if (my > pxH) break;
+        const th = q % 0.5 === 0 ? 6 : 3;
+        vx.beginPath(); vx.moveTo(RS, my); vx.lineTo(RS - th, my); vx.stroke();
+      }
+    }
+  }
+
+  // Sync ruler scroll position with canvas scroll
+  syncRulerScroll();
+}
+
+function syncRulerScroll() {
+  const sc = $('canvas-scroll');
+  if (!sc) return;
+  $('ruler-h').style.transform = 'translateX(' + (-sc.scrollLeft) + 'px)';
+  $('ruler-v').style.transform = 'translateY(' + (-sc.scrollTop) + 'px)';
+}
+
+function updateArtboardInfo() {
+  if (!pageWidthPts || !pageHeightPts) return;
+  const wIn = (pageWidthPts / 72).toFixed(2);
+  const hIn = (pageHeightPts / 72).toFixed(2);
+  $('artboard-section').style.display = 'block';
+  $('artboard-info').innerHTML =
+    `${wIn}" &times; ${hIn}"<br>` +
+    `<span style="color:var(--text2)">${Math.round(pageWidthPts)} &times; ${Math.round(pageHeightPts)} pt</span>`;
+}
+
+function updatePageInfo() {
+  $('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+  $('prev-page').disabled = currentPage <= 1;
+  $('next-page').disabled = currentPage >= totalPages;
+  $('zoom-display').textContent = Math.round(currentScale * 100) + '%';
+}
+
+/* ============================================================
+   UI CONTROLLER
+   ============================================================ */
+let convertInputBytes = null;
+let convertOutputBytes = null;
+
+function initUI() {
+  // Tabs
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      $(btn.dataset.tab + '-panel').classList.add('active');
+    });
+  });
+
+  // Drop zones
+  setupDropZone('preview-drop', 'preview-file-input', async (bytes) => {
+    $('preview-upload').style.display = 'none';
+    $('preview-workspace').style.display = 'flex';
+    $('preview-nav').style.display = 'flex';
+    await loadPDFForPreview(bytes);
+  });
+  setupDropZone('convert-drop', 'convert-file-input', (bytes) => {
+    convertInputBytes = bytes;
+    convertOutputBytes = null;
+    $('convert-btn').disabled = false;
+    $('download-btn').style.display = 'none';
+    $('preview-result-btn').style.display = 'none';
+    setStatus('convert-status', 'info', `PDF loaded (${(bytes.length/1024).toFixed(1)} KB). Ready to convert.`);
+  });
+
+  // Preview controls
+  $('preview-new-file').addEventListener('click', () => {
+    $('preview-upload').style.display = 'flex';
+    $('preview-workspace').style.display = 'none';
+    $('preview-nav').style.display = 'none';
+    previewInputBytes = null;
+    cachedOCConfig = null;
+    hasRealSpotLayer = false;
+    assignedBaseId = null;
+    assignedSpotId = null;
+    detectedGroups = new Map();
+    if (pdfJsDoc) { try { pdfJsDoc.destroy(); } catch(e) {} pdfJsDoc = null; }
+  });
+  // Convert the file currently loaded in preview
+  $('preview-convert-btn').addEventListener('click', async () => {
+    if (!previewInputBytes) return;
+    convertInputBytes = previewInputBytes;
+    // Switch to convert tab, trigger conversion
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelector('[data-tab="convert"]').classList.add('active');
+    $('convert-panel').classList.add('active');
+    $('convert-btn').disabled = false;
+    setStatus('convert-status', 'info', `PDF loaded from preview (${(convertInputBytes.length/1024).toFixed(1)} KB). Ready to convert.`);
+  });
+  $('prev-page').addEventListener('click', async () => {
+    if (currentPage > 1) { currentPage--; await renderCurrentPage(); updatePageInfo(); }
+  });
+  $('next-page').addEventListener('click', async () => {
+    if (currentPage < totalPages) { currentPage++; await renderCurrentPage(); updatePageInfo(); }
+  });
+  $('zoom-in').addEventListener('click', async () => {
+    currentScale = Math.min(5, currentScale + 0.25);
+    await renderCurrentPage(); updatePageInfo();
+  });
+  $('zoom-out').addEventListener('click', async () => {
+    currentScale = Math.max(0.25, currentScale - 0.25);
+    await renderCurrentPage(); updatePageInfo();
+  });
+
+  // Ruler scroll sync
+  $('canvas-scroll').addEventListener('scroll', syncRulerScroll);
+
+  // View mode radio + opacity slider
+  document.querySelectorAll('input[name="view-mode"]').forEach(radio => {
+    radio.addEventListener('change', async (e) => {
+      viewMode = e.target.value;
+      const isOP = viewMode === 'overprint';
+      $('opacity-slider-row').style.display = isOP ? 'flex' : 'none';
+      updateLayerHint();
+      await renderCurrentPage();
+    });
+  });
+  $('spot-opacity').addEventListener('input', async () => {
+    $('spot-opacity-label').textContent = $('spot-opacity').value + '%';
+    if (viewMode === 'overprint') await renderCurrentPage();
+  });
+
+  // Spot color inputs
+  ['spot-c', 'spot-m', 'spot-y', 'spot-k', 'spot-name'].forEach(id => {
+    $(id).addEventListener('input', () => {
+      updateSwatches();
+      if (viewMode === 'overprint') renderCurrentPage();
+    });
+  });
+
+  // Convert + download
+  $('convert-btn').addEventListener('click', runConversion);
+  $('download-btn').addEventListener('click', () => {
+    if (!convertOutputBytes) return;
+    const blob = new Blob([convertOutputBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'overprint-2layer.pdf'; a.click();
+    URL.revokeObjectURL(url);
+  });
+  $('preview-result-btn').addEventListener('click', async () => {
+    if (!convertOutputBytes) return;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelector('[data-tab="preview"]').classList.add('active');
+    $('preview-panel').classList.add('active');
+    $('preview-upload').style.display = 'none';
+    $('preview-workspace').style.display = 'flex';
+    $('preview-nav').style.display = 'flex';
+    await loadPDFForPreview(convertOutputBytes);
+  });
+
+  updateSwatches();
+}
+
+function setupDropZone(dropId, inputId, onLoad) {
+  const zone = $(dropId), input = $(inputId);
+  zone.addEventListener('click', () => input.click());
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault(); zone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.type === 'application/pdf') readFile(f, onLoad);
+  });
+  input.addEventListener('change', () => { if (input.files[0]) readFile(input.files[0], onLoad); });
+}
+
+function readFile(file, cb) {
+  const r = new FileReader();
+  r.onload = () => cb(new Uint8Array(r.result));
+  r.readAsArrayBuffer(file);
+}
+
+function setStatus(id, type, msg) {
+  const el = $(id);
+  el.className = `status visible ${type}`;
+  el.textContent = msg;
+}
+
+async function runConversion() {
+  if (!convertInputBytes) return;
+  $('convert-btn').disabled = true;
+  $('download-btn').style.display = 'none';
+  $('preview-result-btn').style.display = 'none';
+
+  const bar = $('convert-bar');
+  $('convert-progress').classList.add('visible');
+
+  try {
+    convertOutputBytes = await convertPDF(convertInputBytes, {
+      spotCMYK: {
+        c: +$('spot-c').value, m: +$('spot-m').value,
+        y: +$('spot-y').value, k: +$('spot-k').value,
+      },
+      spotName: $('spot-name').value || 'SpotColor',
+      includeBase: $('include-base').checked,
+      mode: $('input-mode').value,
+      traceScale: +$('trace-quality').value,
+      maxColors: +$('max-colors').value,
+      tolerance: +$('simplify-tolerance').value,
+      skipWhite: $('skip-bg').checked,
+    }, (pct, msg) => {
+      bar.style.width = pct + '%';
+      setStatus('convert-status', 'info', msg);
+    });
+
+    bar.style.width = '100%';
+    setStatus('convert-status', 'success',
+      `Conversion complete! Output: ${(convertOutputBytes.length / 1024).toFixed(1)} KB`);
+    $('download-btn').style.display = 'inline-block';
+    $('preview-result-btn').style.display = 'inline-block';
+  } catch (e) {
+    console.error(e);
+    setStatus('convert-status', 'error', 'Conversion failed: ' + e.message);
+  } finally {
+    $('convert-btn').disabled = false;
+    setTimeout(() => $('convert-progress').classList.remove('visible'), 2000);
+  }
+}
+
+initUI();
+</script>
+</body>
+</html>

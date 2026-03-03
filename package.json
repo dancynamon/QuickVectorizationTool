@@ -1,0 +1,24 @@
+{
+  "name": "quickvectorizationtool",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:fixtures": "node tests/generate-fixtures.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:60321/git/dancynamon/QuickVectorizationTool"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@playwright/test": "^1.56.0",
+    "pako": "^2.1.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^3.11.174"
+  },
+  "type": "module"
+}

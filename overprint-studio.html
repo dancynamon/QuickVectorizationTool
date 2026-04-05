@@ -446,18 +446,53 @@ function quantizeColors(imgData, maxColors, skipWhite) {
   if (skipWhite) {
     palette = palette.filter(c => !(c[0] > 240 && c[1] > 240 && c[2] > 240));
   }
+  // FIX #3: Post-merge anti-aliasing fringe colors into dominant ones.
+  // Palette is sorted largest→smallest pixel count, so scanning from the back
+  // collapses small fringe entries first without disturbing dominant colors.
+  // Two merge criteria:
+  //   (a) RGB distance < 60 — catches near-identical hues
+  //   (b) Blend-with-white — catches AA fringes, which are dominant*t + white*(1-t)
+  function isBlendWithWhite(color, dominant, tol) {
+    // Find t from the first non-saturated channel
+    let t = null;
+    for (let ch = 0; ch < 3; ch++) {
+      if (dominant[ch] < 245) {
+        t = (color[ch] - dominant[ch]) / (255 - dominant[ch]);
+        break;
+      }
+    }
+    if (t === null || t < 0 || t > 1) return false;
+    for (let ch = 0; ch < 3; ch++) {
+      if (Math.abs(color[ch] - (dominant[ch] * (1 - t) + 255 * t)) > tol) return false;
+    }
+    return true;
+  }
+  const MERGE_DIST_SQ = 25 * 25; // tight: only collapses near-identical duplicates
+  for (let i = palette.length - 1; i > 0; i--) {
+    for (let j = 0; j < i; j++) {
+      const dr = palette[i][0] - palette[j][0];
+      const dg = palette[i][1] - palette[j][1];
+      const db = palette[i][2] - palette[j][2];
+      if (dr*dr + dg*dg + db*db < MERGE_DIST_SQ || isBlendWithWhite(palette[i], palette[j], 20)) {
+        palette.splice(i, 1);
+        break;
+      }
+    }
+  }
   return palette;
 }
 
 /* --- Index pixels to nearest palette color --- */
-function indexPixels(imgData, palette) {
+// FIX #1: skipWhite parameter now respected here too (was always skipping white
+// regardless of the setting, making the checkbox non-functional).
+function indexPixels(imgData, palette, skipWhite) {
   const d = imgData.data, w = imgData.width, h = imgData.height;
   const idx = new Int16Array(w * h);
   idx.fill(-1);
   for (let i = 0, p = 0; i < d.length; i += 4, p++) {
     if (d[i+3] < 128) continue;
     const r = d[i], g = d[i+1], b = d[i+2];
-    if (r > 240 && g > 240 && b > 240) continue; // skip white-ish
+    if (skipWhite && r > 240 && g > 240 && b > 240) continue; // skip white-ish
     let best = 0, bestD = Infinity;
     for (let c = 0; c < palette.length; c++) {
       const dr = r - palette[c][0], dg = g - palette[c][1], db = b - palette[c][2];
@@ -488,14 +523,27 @@ function edgePt(cx, cy, e) {
 }
 
 function traceContours(mask, w, h) {
-  // Generate all edge segments via marching squares
+  // Pad mask with a 1-cell border of zeros so regions touching the image
+  // boundary get correct closed contours. Without padding, the marching
+  // squares has no cells above row 0 or left of col 0, so it can't generate
+  // boundary segments there. This causes edge-touching regions (like a header
+  // that spans the full width) to produce inverted topology: the entire page
+  // becomes the outer contour and the header becomes an inner hole.
+  const pw = w + 2, ph = h + 2;
+  const padded = new Uint8Array(pw * ph); // zero-filled
+  for (let y = 0; y < h; y++) {
+    padded.set(mask.subarray(y * w, y * w + w), (y + 1) * pw + 1);
+  }
+
+  // Generate all edge segments via marching squares on padded mask.
+  // Subtract 1 from cx/cy so coordinates map back to original pixel space.
   const segs = [];
-  for (let cy = 0; cy < h - 1; cy++) {
-    for (let cx = 0; cx < w - 1; cx++) {
-      const cfg = (mask[cy*w+cx]<<3) | (mask[cy*w+cx+1]<<2) |
-                  (mask[(cy+1)*w+cx+1]<<1) | mask[(cy+1)*w+cx];
+  for (let cy = 0; cy < ph - 1; cy++) {
+    for (let cx = 0; cx < pw - 1; cx++) {
+      const cfg = (padded[cy*pw+cx]<<3) | (padded[cy*pw+cx+1]<<2) |
+                  (padded[(cy+1)*pw+cx+1]<<1) | padded[(cy+1)*pw+cx];
       for (const [fe, te] of MS_LUT[cfg]) {
-        segs.push({ f: edgePt(cx, cy, fe), t: edgePt(cx, cy, te) });
+        segs.push({ f: edgePt(cx - 1, cy - 1, fe), t: edgePt(cx - 1, cy - 1, te) });
       }
     }
   }
@@ -601,7 +649,7 @@ async function traceImageFromPDF(pdfBytes, pageNum, opts) {
   // Quantize + index
   const palette = quantizeColors(imgData, maxColors, skipWhite);
   if (palette.length === 0) return { layers: [], imgW: vp.width, imgH: vp.height, pageW: baseVP.width, pageH: baseVP.height };
-  const indexed = indexPixels(imgData, palette);
+  const indexed = indexPixels(imgData, palette, skipWhite);
 
   // Trace each color
   const layers = [];
@@ -646,6 +694,10 @@ function detectPDFType(csText) {
 
 /* ============================================================
    TRACED PATHS → PDF CONTENT STRINGS
+   FIX #2: All contours of a layer are emitted as subpaths of a
+   single compound path, then closed with "f*" (even-odd fill rule).
+   This makes inner contours (holes/cutouts) render as transparent
+   voids instead of being filled solid.
    ============================================================ */
 function tracedToPDFColorContent(layers, imgW, imgH, pageW, pageH) {
   const sx = pageW / imgW, sy = pageH / imgH;
@@ -653,14 +705,20 @@ function tracedToPDFColorContent(layers, imgW, imgH, pageW, pageH) {
   for (const layer of layers) {
     const [r, g, b] = layer.color;
     s += `${(r/255).toFixed(4)} ${(g/255).toFixed(4)} ${(b/255).toFixed(4)} rg\n`;
+    // Build one compound path for all contours of this layer, then f* once.
+    // Even-odd fill: nested closed subpaths alternate filled/unfilled,
+    // so interior contours (holes) correctly appear transparent.
+    let hasPath = false;
     for (const path of layer.paths) {
       if (path.length < 3) continue;
       s += `${(path[0][0]*sx).toFixed(2)} ${(pageH - path[0][1]*sy).toFixed(2)} m\n`;
       for (let i = 1; i < path.length; i++) {
         s += `${(path[i][0]*sx).toFixed(2)} ${(pageH - path[i][1]*sy).toFixed(2)} l\n`;
       }
-      s += 'h f\n';
+      s += 'h\n';
+      hasPath = true;
     }
+    if (hasPath) s += 'f*\n';
   }
   return s;
 }
@@ -669,14 +727,17 @@ function tracedToPDFSpotContent(layers, imgW, imgH, pageW, pageH) {
   const sx = pageW / imgW, sy = pageH / imgH;
   let s = '';
   for (const layer of layers) {
+    let hasPath = false;
     for (const path of layer.paths) {
       if (path.length < 3) continue;
       s += `${(path[0][0]*sx).toFixed(2)} ${(pageH - path[0][1]*sy).toFixed(2)} m\n`;
       for (let i = 1; i < path.length; i++) {
         s += `${(path[i][0]*sx).toFixed(2)} ${(pageH - path[i][1]*sy).toFixed(2)} l\n`;
       }
-      s += 'h f\n';
+      s += 'h\n';
+      hasPath = true;
     }
+    if (hasPath) s += 'f*\n';
   }
   return s;
 }
